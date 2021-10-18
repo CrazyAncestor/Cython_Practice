@@ -3,7 +3,7 @@ import math as mt
 import matplotlib.pyplot as plt
 import scipy.integrate as integrate
 import scipy.optimize as opt
-
+import test
 # Particle Property
 # kpc
 kpc_in_cm = 3.08567758e21
@@ -337,9 +337,64 @@ def accumulated_bdmflux(start,end,Tx,mx):
         return L_dm
 
 def accumulated_bdm_number(start,end,mx):
-    def f(tx):
+    """def f(tx):
         return accumulated_bdmflux(start,end,tx,mx)
-    return integrate.quad(f,5,100)[0]
+    return integrate.quad(f,5,100)[0]"""
+    R = (np.sum((start-end)**2))**0.5
+    rf = R/c
+    rs_in_rf = rs/R
+    t_max = 1.0+(c*30*yr)/R
+
+    #vx = (Tx*(Tx + 2*mx))**0.5/(Tx+mx) *c # Natural Unit
+    #beta  = vx/c
+    
+    if mx<=0.0:
+        print('damn')
+    else:
+        tm = 30*yr#(1/beta-1)*R/c*100#(1/beta-1)*R/c*20
+        print(tm/(30*yr))
+        def domain(tx,theta):
+            beta = (tx*(tx + 2*mx))**0.5/(tx+mx)
+            cos = np.cos(theta)
+            t = 1+(c*tm)/R
+            result = (-(4*beta**2*(1-t**2)*(1-beta**2) + beta**2*(2*t-2*cos*beta)**2 )**(0.5) + beta*(2*t-2*cos*beta) )/(2*(1-beta**2))
+            ratio = 0.01*rs/R
+            return 1.
+            if result>(1-ratio):
+                return (1-ratio)
+            #return (1-ratio)*np.cos(theta)
+            return result
+    
+        def f(tx,l,theta): 
+            return test.fl(tx,l,theta,mx)
+            beta = (tx*(tx + 2*mx))**0.5/(tx+mx)
+            cos = np.cos(theta)
+            r = (l**2 + 1. - 2 *l *1.0*cos)**0.5
+            alpha = np.arcsin(np.sin(theta)/r)
+            
+            if np.isnan(alpha) or (r<0.01*rs_in_rf):
+                return 0.
+        
+            # Geometric Terms
+            geometric_terms = np.sin(theta) *2*np.pi
+            #print(domain(tx,theta))
+            #return 1.#geometric_terms
+            # Physical terms
+            Ev = _Ev(tx,mx,alpha)
+            if Ev<=0 or np.isnan(Ev):
+                return 0 
+            dn_domega= test.g(alpha,Ev,mx)
+            dEv_dTx = test.dEvdTx(tx,mx,alpha)
+            
+            physical_terms = test.rho(rho_s,r/rs_in_rf)/r**2*dn_domega*dEv_dTx*f_Ev(Ev) 
+            return geometric_terms#*physical_terms
+
+        result = integrate.tplquad(f, 5, 100, lambda tx: 0, lambda tx: np.pi/2.,  lambda tx, theta: 0, lambda tx, theta: domain(tx,theta),epsrel=1.0e-3)[0]
+        #result = integrate.dblquad(f, 5, 100., lambda theta: 0, lambda theta: domain(theta))[0]
+        L = n_tot/4/np.pi
+        L_dm = result*cs/mx*L/R
+
+        return L_dm
 
 if __name__== '__main__':
 

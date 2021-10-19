@@ -24,7 +24,7 @@ rho_s = 0.184e3
 rs=24.42*kpc_in_cm
 
 # cross section (Neutrino and DM)
-cs = 1e-30
+cs = 1e-45
 
 def f_Ev(Ev):
     
@@ -108,10 +108,10 @@ def _Ev(Tx,mx,alpha):
     if alpha==0:
         return Tx+0.5*(Tx**2+2*Tx*mx)**0.5
     
-    Ev = -2*mx + Tx + np.sqrt((2*mx + Tx)**2 + 8*mx*Tx*np.tan(alpha)**(-2)) \
-            + np.sqrt(2*Tx*(2*mx + Tx + 4*mx*np.tan(alpha)**(-2)+   \
-                    + np.sqrt((2*mx + Tx)**2 + 8*mx*Tx*np.tan(alpha)**(-2))))
-    return Ev/4
+    sec = 1/np.cos(alpha)
+    enu = (Tx*sec**2 + sec*np.sqrt(Tx*(2*mx + Tx)))/(2 - Tx*np.tan(alpha)**2/mx)
+    return enu
+
 
 def dEvdTx(Tx,mx,alpha):
     """
@@ -131,11 +131,10 @@ def dEvdTx(Tx,mx,alpha):
     if alpha==0:
         return 1+0.25*(Tx**2+2*Tx*mx)**(-0.5)*(Tx*2+2*mx)
 
-    v1 = 4*mx*Tx + 8*mx*Tx*np.tan(alpha)**(-2)
-    v2 = np.sqrt((2*mx + Tx)**2 + 8*mx*Tx*np.tan(alpha)**(-2))
-    v3 = 2*Tx + np.sqrt(2*Tx*(2*mx + Tx + 4*mx*np.tan(alpha)**(-2) + v2))
-    v4 = 8*Tx*v2
-    return (v1 + (Tx + v2)*v3)/v4
+    sec = 1/np.cos(alpha)
+    numerator = mx**2*sec*(2*sec*np.sqrt(Tx*(2*mx + Tx)) + 2*mx + Tx*sec**2 + Tx)
+    denominator = (Tx*np.tan(alpha)**2 - 2*mx)**2*np.sqrt(Tx*(2*mx + Tx))
+    return numerator/denominator
 
 def _Tx(Ev,mx,alpha):
     """
@@ -165,6 +164,7 @@ def _Tx(Ev,mx,alpha):
     return Tchi
 
 def Root_Finding(theta, t,vx,R = 8.5):
+    t = t+R/c
     cos = np.cos(theta)
     l = (-(4*vx**2*(R**2-(c*t)**2)*(c**2-vx**2) + vx**2*(2*c**2*t-2*R*cos*vx)**2 )**(0.5) + vx*(2*c**2*t-2*R*cos*vx) )/(2*(c**2-vx**2))
     r = (l**2 + R**2 - 2 *l *R*cos)**0.5
@@ -203,27 +203,49 @@ def bdmflux(start,end,Tx,mx,t):
     beta  = vx/c
 
     def f(theta): 
-        l,r,alpha,Flag = Root_Finding_Norm(theta,ts,beta,1.0) # solve geometry
+        mode = 2
+        if mode==1:
+            l,r,alpha,Flag = Root_Finding_Norm(theta,ts,beta,1.0) # solve geometry
 
-        # Geometric Terms
-        geometric_terms = np.sin(theta) *2*np.pi 
+            # Geometric Terms
+            geometric_terms = np.sin(theta) *2*np.pi 
 
-        # Physical terms
-        Ev = _Ev(Tx,mx,alpha)
-        if Ev<=0 or np.isnan(Ev) or r<(1e-1*kpc_in_cm/R):   
-            return 0 
-        dn_domega= g(alpha,Ev,mx)
-        dEv_dTx = dEvdTx(Tx,mx,alpha)
-        
-        physical_terms = rho(rho_s,r/rs_in_rf)/r**2*dn_domega*dEv_dTx *beta*f_Ev(Ev)
+            # Physical terms
+            Ev = _Ev(Tx,mx,alpha)
+            if Ev<=0 or np.isnan(Ev) or r<(1e-1*kpc_in_cm/R):   
+                return 0 
+            dn_domega= g(alpha,Ev,mx)
+            dEv_dTx = dEvdTx(Tx,mx,alpha)
+            
+            physical_terms = rho(rho_s,r/rs_in_rf)/r**2*dn_domega*dEv_dTx *beta*f_Ev(Ev)
+            return geometric_terms*physical_terms/R**2
 
-        return geometric_terms*physical_terms
+        else:
+            #return test.bdmflux_f(theta,t,R,Tx,mx)
+            l,r,alpha,Flag = Root_Finding(theta,t,vx,R) # solve geometry
+
+            # Geometric Terms
+            geometric_terms = np.sin(theta) *2*np.pi 
+
+            # Physical terms
+            Ev = _Ev(Tx,mx,alpha)
+            if Ev<=0 or np.isnan(Ev) :   
+                return 0 
+            dn_domega= g(alpha,Ev,mx)
+            dEv_dTx = dEvdTx(Tx,mx,alpha)
+            
+            physical_terms = rho(rho_s,r/rs)/r**2*dn_domega*dEv_dTx *beta*f_Ev(Ev)
+            return geometric_terms*physical_terms
     
-    result = integrate.quad(f,0,np.pi/2)[0]
+    result = integrate.quad(f,0.1,np.pi/2)[0]
+    result += integrate.quad(f,0.01,0.1)[0]
+    result += integrate.quad(f,0.001,0.01)[0]
+    result += integrate.quad(f,0.0001,0.001)[0]
+    result += integrate.quad(f,0.00001,0.0001)[0]
+    result += integrate.quad(f,0,0.00001)[0]
     L = n_tot/4/np.pi
-    L_dm = result*cs/mx*L *c /R**2
-
-    return L_dm
+    result= result*cs/mx*L*c
+    return result
 
 def bdmflux_single_direction(start,end,Tx,mx,t):
     R = (np.sum((start-end)**2))**0.5
@@ -263,6 +285,10 @@ def test_domain(start,end,Tx,mx,tm):
     for i in range(len(theta)):
         result.append(domain(theta[i]))
     print(result)
+def accumulated_bdmflux_new(start,end,Tx,mx):
+    def f(t):
+        return bdmflux(start,end,Tx,mx,t)
+    return integrate.quad(f,0,1e6)[0]
 
 def accumulated_bdmflux(start,end,Tx,mx):
     R = (np.sum((start-end)**2))**0.5
@@ -335,7 +361,10 @@ def accumulated_bdmflux(start,end,Tx,mx):
         L_dm = result*cs/mx*L/R
 
         return L_dm
-
+def accumulated_bdm_number_new(start,end,mx):
+    def f(tx):
+        return accumulated_bdmflux_new(start,end,tx,mx)
+    return integrate.quad(f,20,100)[0]
 def accumulated_bdm_number(start,end,mx):
     """def f(tx):
         return accumulated_bdmflux(start,end,tx,mx)
@@ -401,14 +430,14 @@ if __name__== '__main__':
     start=np.array([0,0,0])
     end =np.array([8.7*kpc_in_cm,0,0])
     
-    mode = 'total event'
+    mode = 'accumulated flux over time'
 
     if mode=='total event':
         mx = np.logspace(np.log10(1e-3),np.log10(1),20)
         number = []
 
         for m in mx:
-            number.append(accumulated_bdm_number(start,end,m))
+            number.append(accumulated_bdm_number_new(start,end,m))
             print(number[-1])
 
         number = np.array(number)
@@ -427,17 +456,24 @@ if __name__== '__main__':
         print(number)
         
     elif mode=='accumulated flux over time':
-        tx = 10.
-        mx = 10.
-        print(accumulated_bdmflux(start,end,tx,mx))
-        Tx = np.logspace(np.log10(5),np.log10(30),5)
-        mx = 0.001
-        flux = []
+        
+        Tx = np.logspace(np.log10(5),np.log10(100),20)
+        mx1 = 0.1
+        mx2 = 0.01
+        mx3 = 0.001
+        
+        flux1 = []
+        flux2 = []
+        flux3 = []
         
         for tx in Tx:
-            flux.append(accumulated_bdmflux(start,end,tx,mx))
+            flux1.append(accumulated_bdmflux_new(start,end,tx,mx1))
+            flux2.append(accumulated_bdmflux_new(start,end,tx,mx2))
+            flux3.append(accumulated_bdmflux_new(start,end,tx,mx3))
             
-        plt.plot(Tx,flux,label = 'mx = %.4f'%(mx))
+        plt.plot(Tx,flux1,label = 'mx = %.4f'%(mx1))
+        plt.plot(Tx,flux2,label = 'mx = %.4f'%(mx2))
+        plt.plot(Tx,flux3,label = 'mx = %.4f'%(mx3))
         plt.xscale('log')
         plt.yscale('log')
         plt.xlabel('Tx(MeV)')
@@ -466,11 +502,11 @@ if __name__== '__main__':
     elif mode=='flux_mx':
         Tx = 10
         mx1 = 10.
-        mx2 = 1.
+        mx2 = 1.0
         mx3 = 0.1
 
         # years
-        yrls=np.logspace(0,6,200)*yr
+        yrls=np.logspace(-1,6,200)*yr
         flux1 = []
         flux2 = []
         flux3 = []
@@ -486,18 +522,19 @@ if __name__== '__main__':
         plt.xscale('log')
         plt.yscale('log')
         plt.xlabel('time(yr)')
+        #plt.ylim(1e-25,1e-12)
         plt.ylabel(r'$d\Phi^N/dT_\chi$')
         plt.legend(loc='best')
         plt.show()
 
     elif mode=='flux_mx_single_direction':
         Tx = 10
-        mx1 = 0.1
-        mx2 = 0.01
-        mx3 = 0.001
+        mx1 = 10.
+        mx2 = 1.0
+        mx3 = 0.1
 
         # years
-        time=np.logspace(np.log10(20),np.log10(30*yr),200)
+        time=np.logspace(-1,6,200)*yr
 
         flux1_single = []
         flux2_single = []
@@ -516,13 +553,14 @@ if __name__== '__main__':
             flux2_multi.append(bdmflux(start,end,Tx,mx2,t))
             flux3_multi.append(bdmflux(start,end,Tx,mx3,t))
 
-        plt.plot(time/yr,flux1_single,label = 'Tx = %.2f, mx = %.2f,single direction'%(Tx,mx1))
-        plt.plot(time/yr,flux2_single,label = 'Tx = %.2f, mx = %.2f,single direction'%(Tx,mx2))
-        plt.plot(time/yr,flux3_single,label = 'Tx = %.2f, mx = %.2f,single direction'%(Tx,mx3))
+        plt.ylim(1e-25,1e-12)
+        plt.plot(time,flux1_single,label = 'Tx = %.2f, mx = %.2f,single direction'%(Tx,mx1))
+        plt.plot(time,flux2_single,label = 'Tx = %.2f, mx = %.2f,single direction'%(Tx,mx2))
+        plt.plot(time,flux3_single,label = 'Tx = %.2f, mx = %.2f,single direction'%(Tx,mx3))
 
-        plt.plot(time/yr,flux1_multi,label = 'Tx = %.2f, mx = %.2f,multiple direction'%(Tx,mx1))
-        plt.plot(time/yr,flux2_multi,label = 'Tx = %.2f, mx = %.2f,multiple direction'%(Tx,mx2))
-        plt.plot(time/yr,flux3_multi,label = 'Tx = %.2f, mx = %.2f,multiple direction'%(Tx,mx3))
+        plt.plot(time,flux1_multi,label = 'Tx = %.2f, mx = %.2f,multiple direction'%(Tx,mx1))
+        plt.plot(time,flux2_multi,label = 'Tx = %.2f, mx = %.2f,multiple direction'%(Tx,mx2))
+        plt.plot(time,flux3_multi,label = 'Tx = %.2f, mx = %.2f,multiple direction'%(Tx,mx3))
 
         plt.xscale('log')
         plt.yscale('log')

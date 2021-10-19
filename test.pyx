@@ -114,3 +114,43 @@ cpdef fl(double tx,double l,double theta,mx):
      
      cdef double physical_terms = rho(0.184e3,r/3)/r**2*dn_domega*dEv_dTx*f_Ev(Ev) 
      return geometric_terms*physical_terms
+
+cpdef Root_Finding(double theta,double t,double vx,double R = 8.5):
+    cdef double c = 3e10
+    t = t+R/c
+    cdef double cos = np.cos(theta)
+    cdef double l = (-(4*vx**2*(R**2-(c*t)**2)*(c**2-vx**2) + vx**2*(2*c**2*t-2*R*cos*vx)**2 )**(0.5) + vx*(2*c**2*t-2*R*cos*vx) )/(2*(c**2-vx**2))
+    cdef double r = (l**2 + R**2 - 2 *l *R*cos)**0.5
+    cdef double alpha = np.arccos( (r**2 + R**2 - l**2)/(2*R*r) ) + np.arccos(cos)
+
+    # Artificial Criterium 2
+    # Avoid Unphysical Geometry
+
+    if l < 0 or r < 0 or np.isnan(alpha):
+        flag = False
+    else:
+        flag = True
+    return l,r,alpha,flag
+
+cpdef bdmflux_f(double theta,double t,double R,double Tx,double mx):
+     cdef double rho_s = 0.184e3
+     cdef double kpc_in_cm = 3.08567758e21
+     cdef double rs = 24.42*kpc_in_cm
+     
+     cdef double beta = (Tx*(Tx + 2*mx))**0.5/(Tx+mx)
+     cdef double c = 3e10
+     cdef double vx = beta*c
+     l,r,alpha,Flag = Root_Finding(theta,t,vx,R) # solve geometry
+
+     # Geometric Terms
+     cpdef double geometric_terms = np.sin(theta) *2*np.pi 
+
+     # Physical terms
+     cpdef double Ev = _Ev(Tx,mx,alpha)
+     if Ev<=0 or np.isnan(Ev) :   
+          return 0 
+     cpdef double dn_domega= g(alpha,Ev,mx)
+     cpdef double dEv_dTx = dEvdTx(Tx,mx,alpha)
+
+     cpdef double physical_terms = rho(rho_s,r/rs)/r**2*dn_domega*dEv_dTx *beta*f_Ev(Ev)
+     return geometric_terms*physical_terms
